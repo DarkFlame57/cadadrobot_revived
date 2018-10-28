@@ -1,68 +1,64 @@
+
 /*******************************************************************
    An example of bot that echos back any messages received
 *                                                                  *
    written by Giacarlo Bacchio (Gianbacchio on Github)
    adapted by Brian Lough
 *******************************************************************/
+#include <SPI.h>
+#include <SD.h>
+
 #include <ESP8266WiFi.h>
 #include <WiFiClientSecure.h>
 #include <UniversalTelegramBot.h>
-
-
-#include <SPI.h>
-#include <SD.h>
 
 // Bot configuration
 #include "config.h"
 
 #define DEBUG true
 
-IPAddress ip(192, 168, 42, 15);
-IPAddress gateway(192, 168, 42, 1);
-IPAddress subnet(255, 255, 255, 0);
-IPAddress dns1(8, 8, 8, 8);
-
-String while_list[] = {
-  "410877972"  // a_v_p
-};
-
 WiFiClientSecure client;
 UniversalTelegramBot bot(BOTtoken, client);
+File whitelist;
 
-int Bot_mtbs = 1000; //mean time between scan messages
+int Bot_mtbs = 2000; //mean time between scan messages
 long Bot_lasttime;   //last time messages' scan has been done
 
 void init_sdcard() {
-  Serial.print("Initializing SD card...");
-
-  if (!SD.begin(4)) {
-    Serial.println("initialization failed!");
-    while (1) {
-      delay(100);
-    }
+  Serial.print(F("Initializing SD card..."));
+  while (! SD.begin(SS)) {
+    Serial.println(F("initialization failed!"));
+    delay(1000);
   }
-  Serial.println("initialization done.");
-
+  Serial.println(F("initialization done."));
 }
-
-File myFile;
 
 void setup() {
   Serial.begin(115200);
-  delay(500);
-
+  while (!Serial) {
+    delay(500);
+  }
+  delay(1000);
   init_sdcard();
-  myFile = SD.open("white_list.txt");
+  delay(1000);
+  whitelist = SD.open("WL.TXT");
+  if (! whitelist) {
+    Serial.println(F("[error] could not open file"));
+    return;
+  }
+  is_authorized("123");
 
-  WiFi.mode(WIFI_STA);
-  WiFi.disconnect();
+  //  WiFi.mode(WIFI_STA);
+  //  WiFi.disconnect();
   delay(100);
-  pinMode(LED_BUILTIN, OUTPUT);
-  digitalWrite(LED_BUILTIN, HIGH);
 
   // Attempt to connect to Wifi network:
-  Serial.print("Connecting Wifi: ");
+  Serial.print(F("Connecting Wifi: "));
   Serial.println(ssid);
+  IPAddress ip(192, 168, 42, 15);
+  IPAddress gateway(192, 168, 42, 1);
+  IPAddress subnet(255, 255, 255, 0);
+  IPAddress dns1(8, 8, 8, 8);
   WiFi.config(ip, gateway, subnet, dns1);
   WiFi.begin(ssid, password);
 
@@ -71,48 +67,50 @@ void setup() {
     delay(500);
   }
 
-  Serial.println("");
-  Serial.println("WiFi connected");
-  Serial.print("IP address: ");
+  Serial.println(F("\nWiFi connected"));
+  Serial.print(F("IP address: "));
   Serial.println(WiFi.localIP());
+
 }
 
-enum STATE {
-  CHECK_ID,
-  GET_ID
-};
+extern "C" {
+#include "user_interface.h"
+}
+
+char buf[20];
 
 bool is_authorized(String id) {
-//  while (myFile.available()) {
-//    String line = myFile.readStringUntil('\n');
-//    //Serial.println(line);
-//    if (line == id) {
-//      return true;
-//    }
-//  }
-//  return false;
-  return true;
+  bool result = false;
+  if (DEBUG)
+    Serial.println(F("[debug] is_authorized"));
+
+  while (whitelist.available()) {
+    String line = whitelist.readStringUntil('\n');
+    if (line.length() == 0)
+      result = false;
+    if (line.compareTo(id)) {
+      result = true;
+    }
+    delay(100);
+  }
+
+  return result;
 }
 
 void handle_open_door() {
   if (DEBUG)
     Serial.println("[debug] handle_open_door");
-  digitalWrite(LED_BUILTIN, LOW);
-  delay(1000);
-  digitalWrite(LED_BUILTIN, HIGH);
 }
 
+const char* CMD_OPEN = "/open";
+
 void handle_messages() {
-  if (DEBUG)
-    Serial.println("[debug] handle_open_door");
   int message_count = bot.getUpdates(bot.last_message_received + 1);
   while (message_count) {
-    Serial.print("Got messages: ");
+    Serial.print(F("Got messages: "));
     Serial.println(message_count);
     for (int i = 0; i < message_count; i++) {
-      if (bot.messages[i].text == "/open") {
-        Serial.print(bot.messages[i].from_id);
-        Serial.println(": /open");
+      if (bot.messages[i].text == CMD_OPEN) {
         if (is_authorized(bot.messages[i].from_id)) {
           handle_open_door();
           bot.sendMessage(bot.messages[i].chat_id, "ok", "");
@@ -127,8 +125,6 @@ void handle_messages() {
 }
 
 void loop() {
-  if (millis() > Bot_lasttime + Bot_mtbs) {
-    handle_messages();
-    Bot_lasttime = millis();
-  }
+  delay(1000);
+  handle_messages();
 }
