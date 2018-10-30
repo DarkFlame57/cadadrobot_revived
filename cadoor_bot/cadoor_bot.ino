@@ -26,9 +26,15 @@ long Bot_lasttime;   //last time messages' scan has been done
 
 void init_sdcard() {
   Serial.print(F("Initializing SD card..."));
-  while (! SD.begin(SS)) {
+  pinMode(4, OUTPUT);
+  pinMode(4, HIGH);
+  SPI.begin();
+  while (! SD.begin(4)) {
     Serial.println(F("initialization failed!"));
+    SPI.end();
     delay(1000);
+    ESP.reset();
+    delay(5000);
   }
   Serial.println(F("initialization done."));
 }
@@ -38,19 +44,22 @@ void setup() {
   while (!Serial) {
     delay(500);
   }
-  delay(1000);
+  WiFi.mode(WIFI_STA);
+  WiFi.disconnect();
+  delay(100);
   init_sdcard();
   delay(1000);
+  whitelist = SD.open("WL.TXT", FILE_WRITE);
+  whitelist.close();
+
   whitelist = SD.open("WL.TXT");
   if (! whitelist) {
     Serial.println(F("[error] could not open file"));
     return;
   }
   is_authorized("123");
+//
 
-  //  WiFi.mode(WIFI_STA);
-  //  WiFi.disconnect();
-  delay(100);
 
   // Attempt to connect to Wifi network:
   Serial.print(F("Connecting Wifi: "));
@@ -71,6 +80,8 @@ void setup() {
   Serial.print(F("IP address: "));
   Serial.println(WiFi.localIP());
 
+  configTime(0 * 3600, 0, "pool.ntp.org", "time.nist.gov");
+
 }
 
 extern "C" {
@@ -83,7 +94,7 @@ bool is_authorized(String id) {
   bool result = false;
   if (DEBUG)
     Serial.println(F("[debug] is_authorized"));
-
+  whitelist.seek(0);
   while (whitelist.available()) {
     String line = whitelist.readStringUntil('\n');
     if (line.length() == 0)
@@ -103,6 +114,7 @@ void handle_open_door() {
 }
 
 const char* CMD_OPEN = "/open";
+const char* CMD_STATUS = "/status";
 
 void handle_messages() {
   int message_count = bot.getUpdates(bot.last_message_received + 1);
@@ -117,6 +129,14 @@ void handle_messages() {
         } else {
           bot.sendMessage(bot.messages[i].chat_id, "not authorized", "");
         }
+      } else if (bot.messages[i].text == CMD_STATUS) {
+        String response = "";
+        if (whitelist) {
+          response += "SD card: ok";
+        } else {
+          response += "SD card: not connected";
+        }
+        bot.sendMessage(bot.messages[i].chat_id, response, "");
       }
       Serial.println(bot.messages[i].from_id);
     }
