@@ -48,8 +48,6 @@ void setup() {
   delay(1000);
   init_sdcard();
   delay(1000);
-  whitelist = SD.open(WHITELIST_FILE, FILE_WRITE);
-  whitelist.close();
 
   whitelist = SD.open(WHITELIST_FILE, FILE_WRITE);
   if (! whitelist) {
@@ -112,6 +110,7 @@ void handle_open_door() {
 const char* CMD_OPEN = "/open";
 const char* CMD_STATUS = "/status";
 const char* CMD_USERADD = "/useradd";
+const char* CMD_USERDEL = "/userdel";
 const char* CMD_USERLS  = "/userls";
 
 void handle_cmd_status(String chat_id) {
@@ -140,6 +139,19 @@ void handle_cmd_userls(String chat_id) {
 
 void handle_cmd_useradd(String chat_id, String user_id) {
   whitelist.println(user_id);
+  whitelist.flush();
+}
+
+void handle_cmd_userdel(String chat_id, String user_id) {
+  whitelist.seek(0);
+  while (whitelist.available()) {
+    String line = whitelist.readStringUntil('\n');
+    if (line.compareTo(user_id)) {
+      whitelist.seek(whitelist.position() - line.length());
+      whitelist.print((char) - 1);
+      whitelist.flush();
+    }
+  }
 }
 
 void send_error_unauthorized(String chat_id) {
@@ -197,6 +209,12 @@ void handle_messages() {
       } else if (msg_text.indexOf(CMD_USERADD) >= 0) {
         if (is_authorized(from_id)) {
           handle_cmd_useradd(chat_id, get_token(msg_text, ' ', 1));
+        } else {
+          send_error_unauthorized(chat_id);
+        }
+      } else if (msg_text.indexOf(CMD_USERDEL) >= 0) {
+        if (is_authorized(from_id)) {
+          handle_cmd_userdel(chat_id, get_token(msg_text, ' ', 1));
         } else {
           send_error_unauthorized(chat_id);
         }
