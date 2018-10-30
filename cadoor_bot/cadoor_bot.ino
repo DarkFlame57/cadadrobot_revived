@@ -17,6 +17,8 @@
 
 #define DEBUG true
 
+const char* WHITELIST_FILE = "WL.TXT";
+
 WiFiClientSecure client;
 UniversalTelegramBot bot(BOTtoken, client);
 File whitelist;
@@ -46,16 +48,17 @@ void setup() {
   delay(1000);
   init_sdcard();
   delay(1000);
-  whitelist = SD.open("WL.TXT", FILE_WRITE);
+  whitelist = SD.open(WHITELIST_FILE, FILE_WRITE);
   whitelist.close();
 
-  whitelist = SD.open("WL.TXT");
+  whitelist = SD.open(WHITELIST_FILE, FILE_WRITE);
   if (! whitelist) {
-    Serial.println(F("[error] could not open file"));
+    Serial.println(F("Could not open file"));
     return;
   }
+
   is_authorized("123");
-  // Attempt to connect to Wifi network:
+
   Serial.print(F("Connecting Wifi: "));
   Serial.println(ssid);
   IPAddress ip(192, 168, 42, 15);
@@ -86,6 +89,7 @@ bool is_authorized(String id) {
   bool result = false;
   if (DEBUG)
     Serial.println(F("[debug] is_authorized"));
+
   whitelist.seek(0);
   while (whitelist.available()) {
     String line = whitelist.readStringUntil('\n');
@@ -124,12 +128,18 @@ void handle_cmd_status(String chat_id) {
 void handle_cmd_userls(String chat_id) {
   String response = "";
   int counter = 0;
+
   whitelist.seek(0);
   for (int idx = 0; whitelist.available(); ++idx) {
     String line = whitelist.readStringUntil('\n');
     response += String("") + idx + ": " + line + "\n";
   }
+
   bot.sendMessage(chat_id, response, "");
+}
+
+void handle_cmd_useradd(String chat_id, String user_id) {
+  whitelist.println(user_id);
 }
 
 void send_error_unauthorized(String chat_id) {
@@ -138,6 +148,22 @@ void send_error_unauthorized(String chat_id) {
 
 void send_ok(String chat_id) {
   bot.sendMessage(chat_id, "ok", "");
+}
+
+String get_token(String data, char separator, int index)
+{
+  int found = 0;
+  int strIndex[] = { 0, -1 };
+  int maxIndex = data.length() - 1;
+
+  for (int i = 0; i <= maxIndex && found <= index; i++) {
+    if (data.charAt(i) == separator || i == maxIndex) {
+      found++;
+      strIndex[0] = strIndex[1] + 1;
+      strIndex[1] = (i == maxIndex) ? i + 1 : i;
+    }
+  }
+  return found > index ? data.substring(strIndex[0], strIndex[1]) : "";
 }
 
 void handle_messages() {
@@ -165,6 +191,12 @@ void handle_messages() {
       } else if (msg_text == CMD_USERLS) {
         if (is_authorized(from_id)) {
           handle_cmd_userls(chat_id);
+        } else {
+          send_error_unauthorized(chat_id);
+        }
+      } else if (msg_text.indexOf(CMD_USERADD) >= 0) {
+        if (is_authorized(from_id)) {
+          handle_cmd_useradd(chat_id, get_token(msg_text, ' ', 1));
         } else {
           send_error_unauthorized(chat_id);
         }
