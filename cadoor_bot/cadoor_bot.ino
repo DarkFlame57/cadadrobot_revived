@@ -107,6 +107,38 @@ void handle_open_door() {
 
 const char* CMD_OPEN = "/open";
 const char* CMD_STATUS = "/status";
+const char* CMD_USERADD = "/useradd";
+const char* CMD_USERLS  = "/userls";
+
+void handle_cmd_status(String chat_id) {
+  String response = "";
+  response += String("Free RAM: ") + system_get_free_heap_size() + "\n";
+  if (whitelist) {
+    response += "SD card:\tok";
+  } else {
+    response += "SD card:\tnot connected";
+  }
+  bot.sendMessage(chat_id, response, "");
+}
+
+void handle_cmd_userls(String chat_id) {
+  String response = "";
+  int counter = 0;
+  whitelist.seek(0);
+  for (int idx = 0; whitelist.available(); ++idx) {
+    String line = whitelist.readStringUntil('\n');
+    response += String("") + idx + ": " + line + "\n";
+  }
+  bot.sendMessage(chat_id, response, "");
+}
+
+void send_error_unauthorized(String chat_id) {
+  bot.sendMessage(chat_id, "not authorized", "");
+}
+
+void send_ok(String chat_id) {
+  bot.sendMessage(chat_id, "ok", "");
+}
 
 void handle_messages() {
   int message_count = bot.getUpdates(bot.last_message_received + 1);
@@ -114,24 +146,29 @@ void handle_messages() {
     Serial.print(F("Got messages: "));
     Serial.println(message_count);
     for (int i = 0; i < message_count; i++) {
-      if (bot.messages[i].text == CMD_OPEN) {
-        if (is_authorized(bot.messages[i].from_id)) {
+      String chat_id = bot.messages[i].chat_id;
+      String from_id = bot.messages[i].from_id;
+      String msg_text = bot.messages[i].text;
+      if (msg_text == CMD_OPEN) {
+        if (is_authorized(from_id)) {
           handle_open_door();
-          bot.sendMessage(bot.messages[i].chat_id, "ok", "");
+          send_ok(chat_id);
         } else {
-          bot.sendMessage(bot.messages[i].chat_id, "not authorized", "");
+          send_error_unauthorized(chat_id);
         }
-      } else if (bot.messages[i].text == CMD_STATUS) {
-        String response = "";
-        response += String("Free RAM: ") + system_get_free_heap_size() + "\n";
-        if (whitelist) {
-          response += "SD card:\tok";
+      } else if (msg_text == CMD_STATUS) {
+        if (is_authorized(from_id)) {
+          handle_cmd_status(chat_id);
         } else {
-          response += "SD card:\tnot connected";
+          send_error_unauthorized(chat_id);
         }
-        bot.sendMessage(bot.messages[i].chat_id, response, "");
+      } else if (msg_text == CMD_USERLS) {
+        if (is_authorized(from_id)) {
+          handle_cmd_userls(chat_id);
+        } else {
+          send_error_unauthorized(chat_id);
+        }
       }
-      Serial.println(bot.messages[i].from_id);
     }
     message_count = bot.getUpdates(bot.last_message_received + 1);
   }
