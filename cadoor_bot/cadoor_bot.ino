@@ -21,20 +21,17 @@ WiFiClientSecure client;
 UniversalTelegramBot bot(BOTtoken, client);
 File whitelist;
 
-int Bot_mtbs = 2000; //mean time between scan messages
-long Bot_lasttime;   //last time messages' scan has been done
-
 void init_sdcard() {
   Serial.print(F("Initializing SD card..."));
   pinMode(4, OUTPUT);
   pinMode(4, HIGH);
-  SPI.begin();
+
   while (! SD.begin(4)) {
     Serial.println(F("initialization failed!"));
-    SPI.end();
+
     delay(1000);
     ESP.reset();
-    delay(5000);
+    delay(10000);
   }
   Serial.println(F("initialization done."));
 }
@@ -46,7 +43,7 @@ void setup() {
   }
   WiFi.mode(WIFI_STA);
   WiFi.disconnect();
-  delay(100);
+  delay(1000);
   init_sdcard();
   delay(1000);
   whitelist = SD.open("WL.TXT", FILE_WRITE);
@@ -58,9 +55,6 @@ void setup() {
     return;
   }
   is_authorized("123");
-//
-
-
   // Attempt to connect to Wifi network:
   Serial.print(F("Connecting Wifi: "));
   Serial.println(ssid);
@@ -87,8 +81,6 @@ void setup() {
 extern "C" {
 #include "user_interface.h"
 }
-
-char buf[20];
 
 bool is_authorized(String id) {
   bool result = false;
@@ -131,10 +123,11 @@ void handle_messages() {
         }
       } else if (bot.messages[i].text == CMD_STATUS) {
         String response = "";
+        response += String("Free RAM: ") + system_get_free_heap_size() + "\n";
         if (whitelist) {
-          response += "SD card: ok";
+          response += "SD card:\tok";
         } else {
-          response += "SD card: not connected";
+          response += "SD card:\tnot connected";
         }
         bot.sendMessage(bot.messages[i].chat_id, response, "");
       }
