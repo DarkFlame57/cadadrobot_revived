@@ -15,6 +15,10 @@
 // Bot configuration
 #include "config.h"
 
+extern "C" {
+#include "user_interface.h"
+}
+
 #define DEBUG true
 
 const char* WHITELIST_FILE = "WL.TXT";
@@ -38,6 +42,19 @@ void init_sdcard() {
   Serial.println(F("initialization done."));
 }
 
+void open_file(int mode) {
+  whitelist = SD.open(WHITELIST_FILE, mode);
+  delay(100);
+  if (! whitelist) {
+    Serial.println(F("Could not open file"));
+  }
+}
+
+void close_file() {
+  whitelist.flush();
+  whitelist.close();
+}
+
 void setup() {
   Serial.begin(115200);
   while (!Serial) {
@@ -45,17 +62,6 @@ void setup() {
   }
   WiFi.mode(WIFI_STA);
   WiFi.disconnect();
-  delay(1000);
-  init_sdcard();
-  delay(1000);
-
-  whitelist = SD.open(WHITELIST_FILE, FILE_WRITE);
-  if (! whitelist) {
-    Serial.println(F("Could not open file"));
-    return;
-  }
-
-  is_authorized("123");
 
   Serial.print(F("Connecting Wifi: "));
   Serial.println(ssid);
@@ -77,10 +83,31 @@ void setup() {
 
   configTime(0 * 3600, 0, "pool.ntp.org", "time.nist.gov");
 
+  delay(1000);
+  init_sdcard();
+  delay(100);
+
+  delay(100);
 }
 
-extern "C" {
-#include "user_interface.h"
+void send_error_unauthorized(String chat_id) {
+  bot.sendMessage(chat_id, "not authorized", "");
+}
+
+void send_ok(String chat_id) {
+  bot.sendMessage(chat_id, "ok", "");
+}
+
+String read_line(File f) {
+  String result = "";
+  while (f.available()) {
+    char ch = (char) f.read();
+    if ((ch == '\n') || (ch == -1)) {
+      break;
+    }
+    result += ch;
+  }
+  return result;
 }
 
 bool is_authorized(String id) {
@@ -88,9 +115,12 @@ bool is_authorized(String id) {
   if (DEBUG)
     Serial.println(F("[debug] is_authorized"));
 
-  whitelist.seek(0);
+  open_file(FILE_READ);
+
+  Serial.println(String("a: ") + whitelist.available());
   while (whitelist.available()) {
-    String line = whitelist.readStringUntil('\n');
+    String line = read_line(whitelist);
+    Serial.println(line);
     if (line.length() == 0)
       result = false;
     if (line.compareTo(id)) {
@@ -99,16 +129,20 @@ bool is_authorized(String id) {
     delay(100);
   }
 
+  close_file();
+
   return result;
 }
 
-void handle_open_door() {
+void handle_open_door(String chat_id) {
   if (DEBUG)
     Serial.println("[debug] handle_open_door");
+
+  send_ok(chat_id);
 }
 
-const char* CMD_OPEN = "/open";
-const char* CMD_STATUS = "/status";
+const char* CMD_OPEN    = "/open";
+const char* CMD_STATUS  = "/status";
 const char* CMD_USERADD = "/useradd";
 const char* CMD_USERDEL = "/userdel";
 const char* CMD_USERLS  = "/userls";
@@ -128,38 +162,75 @@ void handle_cmd_userls(String chat_id) {
   String response = "";
   int counter = 0;
 
-  whitelist.seek(0);
-  for (int idx = 0; whitelist.available(); ++idx) {
-    String line = whitelist.readStringUntil('\n');
-    response += String("") + idx + ": " + line + "\n";
+  open_file(FILE_READ);
+
+  for (int idx = 0; whitelist.available();) {
+    String line = read_line(whitelist);
+    if (line.length() > 0) {
+      response += String("") + idx + ": " + line + "\n";
+      ++idx;
+    }
   }
+
+  close_file();
 
   bot.sendMessage(chat_id, response, "");
 }
 
 void handle_cmd_useradd(String chat_id, String user_id) {
+  open_file(FILE_WRITE);
   whitelist.println(user_id);
   whitelist.flush();
+  close_file();
+  send_ok(chat_id);
 }
 
-void handle_cmd_userdel(String chat_id, String user_id) {
-  whitelist.seek(0);
+boolean file_mv(String src, String dst) {
+  File src_f = SD.open(src, FILE_READ);
+  if (! src_f) {
+    Serial.println("[warning] file_mv: Could not open source file.");
+    return false;
+  }
+  SD.remove(dst);
+  File dst_f = SD.open(dst, FILE_WRITE);
+  if (! dst_f) {
+    Serial.println("[error] file_mv: Could not open destination file.");
+    return false;
+  }
+  while (src_f.available()) {
+    String line = read_line(src_f);
+    Serial.println(line);
+    dst_f.println(line);
+  }
+  src_f.close();
+  SD.remove(src);
+  dst_f.close();
+  return true;
+}
+
+void handle_cmd_userdel(String chat_id, String caller_id, String user_id) {
+  const char* TMP_FILE = "wltmp.txt";
+  Serial.println(chat_id + ", " + caller_id + ", " + user_id);
+  if (caller_id == user_id) {
+    bot.sendMessage(chat_id, "Bzzzt.  You cannot delete yourself.", "");
+    return;
+  }
+  open_file(FILE_READ);
+  File tmp = SD.open(TMP_FILE, FILE_WRITE);
   while (whitelist.available()) {
-    String line = whitelist.readStringUntil('\n');
-    if (line.compareTo(user_id)) {
-      whitelist.seek(whitelist.position() - line.length());
-      whitelist.print((char) - 1);
-      whitelist.flush();
+    String line = read_line(whitelist);
+    if (line.indexOf(user_id) < 0) {
+      tmp.println(line);
     }
   }
-}
+  tmp.close();
+  close_file();
 
-void send_error_unauthorized(String chat_id) {
-  bot.sendMessage(chat_id, "not authorized", "");
-}
-
-void send_ok(String chat_id) {
-  bot.sendMessage(chat_id, "ok", "");
+  if (! file_mv(TMP_FILE, WHITELIST_FILE)) {
+    bot.sendMessage(chat_id, "Bzzzt.  Failed to update whitelist.", "");
+  } else {
+    send_ok(chat_id);
+  }
 }
 
 String get_token(String data, char separator, int index)
@@ -189,7 +260,7 @@ void handle_messages() {
       String msg_text = bot.messages[i].text;
       if (msg_text == CMD_OPEN) {
         if (is_authorized(from_id)) {
-          handle_open_door();
+          handle_open_door(chat_id);
           send_ok(chat_id);
         } else {
           send_error_unauthorized(chat_id);
@@ -214,7 +285,8 @@ void handle_messages() {
         }
       } else if (msg_text.indexOf(CMD_USERDEL) >= 0) {
         if (is_authorized(from_id)) {
-          handle_cmd_userdel(chat_id, get_token(msg_text, ' ', 1));
+          handle_cmd_userdel(chat_id, from_id,
+                             get_token(msg_text, ' ', 1));
         } else {
           send_error_unauthorized(chat_id);
         }
