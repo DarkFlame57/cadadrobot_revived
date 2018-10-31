@@ -146,15 +146,28 @@ const char* CMD_USERADD = "/useradd";
 const char* CMD_USERDEL = "/userdel";
 const char* CMD_USERLS  = "/userls";
 const char* CMD_HELP    = "/help";
+const char* CMD_ID      = "/id";
+
+String get_uptime() {
+  long millisecs = millis();
+  String result;
+  result += int(millisecs / (1000.0 * 60.0 * 60.0 * 24.0)) % 365;
+  result += String(":") + int((millisecs / (1000.0 * 60.0 * 60.0))) % 24;
+  result += String(":") + int(millisecs / (1000.0 * 60.0)) % 60;
+  return result;
+}
 
 void handle_cmd_status(String chat_id) {
   String response = "";
+  response += String("Uptime:   ") + get_uptime() + "\n";
   response += String("Free RAM: ") + system_get_free_heap_size() + "\n";
+  open_file(FILE_READ);
   if (whitelist) {
     response += "SD card:\tok";
   } else {
     response += "SD card:\tnot connected";
   }
+  close_file();
   bot.sendMessage(chat_id, response, "");
 }
 
@@ -167,7 +180,7 @@ void handle_cmd_userls(String chat_id) {
   for (int idx = 0; whitelist.available();) {
     String line = read_line(whitelist);
     if (line.length() > 0) {
-      response += String("") + idx + ": " + line + "\n";
+      response += String("") + idx + ". " + line + "\n";
       ++idx;
     }
   }
@@ -177,14 +190,15 @@ void handle_cmd_userls(String chat_id) {
   bot.sendMessage(chat_id, response, "");
 }
 
-void handle_cmd_useradd(String chat_id, String user_id) {
+void handle_cmd_useradd(String chat_id, String user_id,
+                        String user_name) {
   Serial.println(String("user_id: '") + user_id + "'");
   if (user_id.length() == 0) {
     bot.sendMessage(chat_id, "Could not add empty ID", "");
     return;
   }
   open_file(FILE_WRITE);
-  whitelist.println(String("\n") + user_id);
+  whitelist.print(String("\n") + user_id + ":" + user_name);
   whitelist.flush();
   close_file();
   send_ok(chat_id);
@@ -225,9 +239,6 @@ void handle_cmd_userdel(String chat_id, String caller_id, String user_id) {
   String line;
   while (whitelist.available()) {
     line = read_line(whitelist);
-    Serial.println("*************");
-    Serial.println(String("aaa: '") + line + "'");
-    Serial.println(line.length());
     if ((line.indexOf(user_id) < 0) && (line.length() > 2)) {
       tmp.println(line);
     }
@@ -249,7 +260,7 @@ String get_token(String data, char separator, int index)
   int maxIndex = data.length() - 1;
 
   for (int i = 0; i <= maxIndex && found <= index; i++) {
-    if (data.charAt(i) == separator || i == maxIndex) {
+    if ((data.charAt(i) == separator) || (i == maxIndex)) {
       found++;
       strIndex[0] = strIndex[1] + 1;
       strIndex[1] = (i == maxIndex) ? i + 1 : i;
@@ -262,10 +273,23 @@ void handle_cmd_help(String chat_id) {
   String result = "Available commands:\n";
   result += "/open    -- open the door\n";
   result += "/userls  -- list available users\n";
-  result += "/useradd -- add a new user\n";
-  result += "/userdel -- remove a user with the given ID\n";
+  result += "/useradd <user-id> <user-name> -- add a new user\n";
+  result += "/userdel <user-id> -- remove a user with the given ID\n";
+  result += "/status  -- show the system status\n";
+  result += "/id      -- print your ID\n";
   result += "/help    -- print this message\n";
   bot.sendMessage(chat_id, result, "");
+}
+
+void handle_cmd_help_user(String chat_id) {
+  String result = "Available commands:\n";
+  result += "/id      -- print your ID\n";
+  result += "/help    -- print this message\n";
+  bot.sendMessage(chat_id, result, "");
+}
+
+void handle_cmd_id(String chat_id, String from_id) {
+  bot.sendMessage(chat_id, from_id, "");
 }
 
 void handle_messages() {
@@ -298,7 +322,9 @@ void handle_messages() {
         }
       } else if (msg_text.indexOf(CMD_USERADD) >= 0) {
         if (is_authorized(from_id)) {
-          handle_cmd_useradd(chat_id, get_token(msg_text, ' ', 1));
+          handle_cmd_useradd(chat_id,
+                             get_token(msg_text, ' ', 1),
+                             get_token(msg_text, ' ', 2));
         } else {
           send_error_unauthorized(chat_id);
         }
@@ -313,8 +339,10 @@ void handle_messages() {
         if (is_authorized(from_id)) {
           handle_cmd_help(chat_id);
         } else {
-          send_error_unauthorized(chat_id);
+          handle_cmd_help_user(chat_id);
         }
+      } else if (msg_text.indexOf(CMD_ID) >= 0) {
+        handle_cmd_id(chat_id, from_id);
       }
     }
     message_count = bot.getUpdates(bot.last_message_received + 1);
