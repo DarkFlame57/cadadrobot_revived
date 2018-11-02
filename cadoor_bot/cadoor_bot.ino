@@ -5,12 +5,14 @@
    written by Giacarlo Bacchio (Gianbacchio on Github)
    adapted by Brian Lough
 *******************************************************************/
+#define LWIP_DEBUG 1
 #include <SPI.h>
 #include <SD.h>
 
 #include <ESP8266WiFi.h>
 #include <WiFiClientSecure.h>
 #include <UniversalTelegramBot.h>
+#include <EasyNTPClient.h>
 
 #include <time.h>
 
@@ -107,7 +109,8 @@ void setup() {
   Serial.print(F("IP address: "));
   Serial.println(WiFi.localIP());
 
-  configTime(0 * 3600, 0, "pool.ntp.org", "time.nist.gov");
+  configTime(3 * 3600, 0, "pool.ntp.org", "time.nist.gov");
+  //  setenv("TZ", "CET-1CEST,M3.5.0,M10.5.0/3", 0);
   Serial.println("\nWaiting for time");
   while (! time(nullptr)) {
     Serial.print(".");
@@ -136,8 +139,6 @@ bool is_authorized(String id, String name) {
 
   open_file(FILE_READ);
 
-  Serial.println(String("id: ") + id);
-  Serial.println(String("a: ") + whitelist.available());
   while (whitelist.available()) {
     String line = read_line(whitelist);
     Serial.println(line);
@@ -155,10 +156,23 @@ bool is_authorized(String id, String name) {
 }
 
 void handle_cmd_logtail(String chat_id, int count) {
+  if (DEBUG)
+    Serial.println("[debug] handle_cmd_logtail");
   File logf = SD.open(LOG_FILE, FILE_READ);
+  uint32_t line_count = 0;
+  while (logf.available()) {
+    if (logf.read() == '\n') {
+      ++line_count;
+    }
+  }
+  logf.seek(0);
   String response = "";
-  for (int cnt = 0; (cnt < count) && logf.available(); cnt++) {
-    response += read_line(logf) + "\n";
+  for (int cnt = 0; logf.available(); cnt++) {
+    if (cnt > (line_count - 10)) {
+      response += read_line(logf) + "\n";
+    } else {
+      read_line(logf);
+    }
   }
   logf.close();
   bot.sendMessage(chat_id, response, "");
@@ -191,6 +205,8 @@ String get_uptime() {
 
 void handle_cmd_status(String chat_id) {
   String response = "";
+  time_t now = time(NULL);
+  response += String("Time:     ") + ctime(&now);
   response += String("Uptime:   ") + get_uptime() + "\n";
   response += String("Free RAM: ") + system_get_free_heap_size() + "\n";
   open_file(FILE_READ);
