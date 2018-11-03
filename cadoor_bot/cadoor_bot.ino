@@ -5,7 +5,6 @@
    written by Giacarlo Bacchio (Gianbacchio on Github)
    adapted by Brian Lough
 *******************************************************************/
-#define LWIP_DEBUG 1
 #include <SPI.h>
 #include <SD.h>
 
@@ -13,6 +12,7 @@
 #include <WiFiClientSecure.h>
 #include <UniversalTelegramBot.h>
 #include <EasyNTPClient.h>
+#include <WiFiUdp.h>
 
 #include <time.h>
 
@@ -24,6 +24,10 @@ extern "C" {
 }
 
 #define DEBUG true
+
+const int DOOR_BUTTON_PIN = 1;
+const int DOOR_OPEN_PIN   = 2;
+const int DOOR_BUZZER     = 15;
 
 const char* WHITELIST_FILE = "WL.TXT";
 const char* LOG_FILE = "LOG.TXT";
@@ -72,13 +76,13 @@ void close_file() {
   whitelist.close();
 }
 
-void log(String msg) {
+void log(String date, String msg) {
   File logf = SD.open(LOG_FILE, FILE_WRITE);
   if (! logf) {
     Serial.println("[error] Could not open log file.");
     return;
   }
-  time_t now = time(nullptr);
+  time_t now = date.toInt() + 3600 * 3;
   logf.println(String("") + ctime(&now) + " " + msg);
   logf.close();
 }
@@ -90,6 +94,10 @@ void setup() {
   }
   WiFi.mode(WIFI_STA);
   WiFi.disconnect();
+
+  pinMode(DOOR_BUTTON_PIN, INPUT);
+  pinMode(DOOR_OPEN_PIN,   OUTPUT);
+  pinMode(DOOR_BUZZER,     OUTPUT);
 
   Serial.print(F("Connecting Wifi: "));
   Serial.println(ssid);
@@ -109,14 +117,6 @@ void setup() {
   Serial.print(F("IP address: "));
   Serial.println(WiFi.localIP());
 
-  configTime(3 * 3600, 0, "pool.ntp.org", "time.nist.gov");
-  //  setenv("TZ", "CET-1CEST,M3.5.0,M10.5.0/3", 0);
-  Serial.println("\nWaiting for time");
-  while (! time(nullptr)) {
-    Serial.print(".");
-    delay(1000);
-  }
-
   delay(1000);
   init_sdcard();
   delay(100);
@@ -132,7 +132,7 @@ void send_ok(String chat_id) {
   bot.sendMessage(chat_id, "ok", "");
 }
 
-bool is_authorized(String id, String name) {
+bool is_authorized(String date, String id, String name) {
   bool result = false;
   if (DEBUG)
     Serial.println(F("[debug] is_authorized"));
@@ -144,7 +144,7 @@ bool is_authorized(String id, String name) {
     Serial.println(line);
     if (line.indexOf(id) >= 0) {
       result = true;
-      log("user with ID " + id + " (" + name + ") is authorized");
+      log(date, "user with ID " + id + " (" + name + ") is authorized");
       break;
     }
     delay(100);
@@ -182,6 +182,8 @@ void handle_open_door(String chat_id) {
   if (DEBUG)
     Serial.println("[debug] handle_open_door");
 
+  tone(DOOR_BUZZER_PIN, 200, 100000);
+
   send_ok(chat_id);
 }
 
@@ -205,8 +207,6 @@ String get_uptime() {
 
 void handle_cmd_status(String chat_id) {
   String response = "";
-  time_t now = time(NULL);
-  response += String("Time:     ") + ctime(&now);
   response += String("Uptime:   ") + get_uptime() + "\n";
   response += String("Free RAM: ") + system_get_free_heap_size() + "\n";
   open_file(FILE_READ);
@@ -351,27 +351,28 @@ void handle_messages() {
       String from_id   = bot.messages[i].from_id;
       String from_name = bot.messages[i].from_name;
       String msg_text  = bot.messages[i].text;
+      String date      = bot.messages[i].date;
       if (msg_text == CMD_OPEN) {
-        if (is_authorized(from_id, from_name)) {
+        if (is_authorized(date, from_id, from_name)) {
           handle_open_door(chat_id);
           send_ok(chat_id);
         } else {
           send_error_unauthorized(chat_id);
         }
       } else if (msg_text == CMD_STATUS) {
-        if (is_authorized(from_id, from_name)) {
+        if (is_authorized(date, from_id, from_name)) {
           handle_cmd_status(chat_id);
         } else {
           send_error_unauthorized(chat_id);
         }
       } else if (msg_text == CMD_USERLS) {
-        if (is_authorized(from_id, from_name)) {
+        if (is_authorized(date, from_id, from_name)) {
           handle_cmd_userls(chat_id);
         } else {
           send_error_unauthorized(chat_id);
         }
       } else if (msg_text.indexOf(CMD_USERADD) >= 0) {
-        if (is_authorized(from_id, from_name)) {
+        if (is_authorized(date, from_id, from_name)) {
           handle_cmd_useradd(chat_id,
                              get_token(msg_text, ' ', 1),
                              get_token(msg_text, ' ', 2));
@@ -379,14 +380,14 @@ void handle_messages() {
           send_error_unauthorized(chat_id);
         }
       } else if (msg_text.indexOf(CMD_USERDEL) >= 0) {
-        if (is_authorized(from_id, from_name)) {
+        if (is_authorized(date, from_id, from_name)) {
           handle_cmd_userdel(chat_id, from_id,
                              get_token(msg_text, ' ', 1));
         } else {
           send_error_unauthorized(chat_id);
         }
       } else if (msg_text.indexOf(CMD_HELP) >= 0) {
-        if (is_authorized(from_id, from_name)) {
+        if (is_authorized(date, from_id, from_name)) {
           handle_cmd_help(chat_id);
         } else {
           handle_cmd_help_user(chat_id);
@@ -394,7 +395,7 @@ void handle_messages() {
       } else if (msg_text.indexOf(CMD_ID) >= 0) {
         handle_cmd_id(chat_id, from_id);
       } else if (msg_text.indexOf(CMD_LOGTAIL) >= 0) {
-        if (is_authorized(from_id, from_name)) {
+        if (is_authorized(date, from_id, from_name)) {
           String count = get_token(msg_text, ' ', 1);
           handle_cmd_logtail(chat_id, count.toInt());
         } else {
