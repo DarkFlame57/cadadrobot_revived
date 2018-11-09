@@ -25,16 +25,28 @@ extern "C" {
 
 #define DEBUG true
 
-const int DOOR_BUTTON_PIN = 1;
-const int DOOR_OPEN_PIN   = 2;
-const int DOOR_BUZZER     = 15;
-
 const char* WHITELIST_FILE = "WL.TXT";
 const char* LOG_FILE = "LOG.TXT";
 
 WiFiClientSecure client;
 UniversalTelegramBot bot(BOTtoken, client);
 File whitelist;
+
+const int LOCK_PIN    = 5;
+const int BUTTON_PIN  = 2;
+const int SPEAKER_PIN = 16;
+
+void play_tone(int pin, float f, long len) {
+  int p = 1000000 / f;
+  int d = p / 2;
+  int count = len / p;
+  for (int c = 0; c < count; c++) {
+    digitalWrite(pin, HIGH);
+    delayMicroseconds(d);
+    digitalWrite(pin, LOW);
+    delayMicroseconds(d);
+  }
+}
 
 void init_sdcard() {
   Serial.print(F("Initializing SD card..."));
@@ -83,7 +95,9 @@ void log(String date, String msg) {
     return;
   }
   time_t now = date.toInt() + 3600 * 3;
-  logf.println(String("") + ctime(&now) + " " + msg);
+  String ts = ctime(&now);
+  ts = ts.substring(0, ts.length() - 1);
+  logf.println(String("") + ts + " " + msg);
   logf.close();
 }
 
@@ -92,12 +106,14 @@ void setup() {
   while (!Serial) {
     delay(500);
   }
+
+  pinMode(LOCK_PIN, OUTPUT);
+  digitalWrite(LOCK_PIN, LOW);
+  pinMode(BUTTON_PIN, INPUT);
+  pinMode(SPEAKER_PIN, OUTPUT);
+
   WiFi.mode(WIFI_STA);
   WiFi.disconnect();
-
-  pinMode(DOOR_BUTTON_PIN, INPUT);
-  pinMode(DOOR_OPEN_PIN,   OUTPUT);
-  pinMode(DOOR_BUZZER,     OUTPUT);
 
   Serial.print(F("Connecting Wifi: "));
   Serial.println(ssid);
@@ -158,6 +174,14 @@ bool is_authorized(String date, String id, String name) {
 void handle_cmd_logtail(String chat_id, int count) {
   if (DEBUG)
     Serial.println("[debug] handle_cmd_logtail");
+
+  if (count <= 0) {
+    bot.sendMessage(chat_id,
+                    "Bzzzt.  The parameter should be > 0",
+                    "");
+    return;
+  }
+
   File logf = SD.open(LOG_FILE, FILE_READ);
   uint32_t line_count = 0;
   while (logf.available()) {
@@ -178,12 +202,16 @@ void handle_cmd_logtail(String chat_id, int count) {
   bot.sendMessage(chat_id, response, "");
 }
 
+void open_door() {
+  digitalWrite(LOCK_PIN, HIGH);
+  play_tone(SPEAKER_PIN, 291.63, 500000);
+  digitalWrite(LOCK_PIN, LOW);
+}
+
 void handle_open_door(String chat_id) {
   if (DEBUG)
     Serial.println("[debug] handle_open_door");
-
-  tone(DOOR_BUZZER_PIN, 200, 100000);
-
+  open_door();
   send_ok(chat_id);
 }
 
@@ -285,6 +313,12 @@ void handle_cmd_userdel(String chat_id, String caller_id, String user_id) {
   open_file(FILE_READ);
   File tmp = SD.open(TMP_FILE, FILE_WRITE);
   String line;
+
+  if (whitelist.available()) {
+    // Skip the fist line to protect the "super-admin".
+    read_line(whitelist);
+  }
+
   while (whitelist.available()) {
     line = read_line(whitelist);
     if ((line.indexOf(user_id) < 0) && (line.length() > 2)) {
@@ -319,14 +353,15 @@ String get_token(String data, char separator, int index)
 
 void handle_cmd_help(String chat_id) {
   String result = "Available commands:\n";
-  result += "/open    -- open the door\n";
-  result += "/userls  -- list available users\n";
-  result += "/useradd <user-id> <user-name> -- add a new user\n";
-  result += "/userdel <user-id> -- remove a user with the given ID\n";
-  result += "/status  -- show the system status\n";
-  result += "/id      -- print your ID\n";
-  result += "/logtail <count> -- show the last COUNT lines of the log file.\n";
-  result += "/help    -- print this message\n";
+  result += "* /open    -- open the door\n";
+  result += "* /userls  -- list available users\n";
+  result += "* /useradd <user-id> <user-name> -- add a new user\n";
+  result += "* /userdel <user-id> -- remove a user with the given ID\n";
+  result += "* /status  -- show the system status\n";
+  result += "* /id      -- print your ID\n";
+  result += "* /logtail [count] -- show the last COUNT lines of the log file.";
+  result += " If COUNT is not specified, show the last 10 lines.\n";
+  result += "* /help    -- print this message\n";
   bot.sendMessage(chat_id, result, "");
 }
 
@@ -355,7 +390,6 @@ void handle_messages() {
       if (msg_text == CMD_OPEN) {
         if (is_authorized(date, from_id, from_name)) {
           handle_open_door(chat_id);
-          send_ok(chat_id);
         } else {
           send_error_unauthorized(chat_id);
         }
@@ -397,6 +431,9 @@ void handle_messages() {
       } else if (msg_text.indexOf(CMD_LOGTAIL) >= 0) {
         if (is_authorized(date, from_id, from_name)) {
           String count = get_token(msg_text, ' ', 1);
+          if (count.length() == 0) {
+            count = "10";
+          }
           handle_cmd_logtail(chat_id, count.toInt());
         } else {
           handle_cmd_help_user(chat_id);
@@ -407,7 +444,14 @@ void handle_messages() {
   }
 }
 
+int loop_counter = 0;
+
 void loop() {
-  delay(1000);
-  handle_messages();
+  delay(100);
+  if (digitalRead(BUTTON_PIN) == LOW) {
+    open_door();
+  }
+  if (loop_counter % 10 == 0) {
+    handle_messages();
+  }
 }
