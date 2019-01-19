@@ -147,25 +147,34 @@ void send_ok(String chat_id) {
   bot.sendMessage(chat_id, "ok", "");
 }
 
+/**
+ * Check if an user is in the whitelist by their ID.
+ * @returns true if ID is present in the whitelist, false otherwise.
+ */
+static bool is_user_in_wl(String id) {
+  open_file(FILE_READ);
+  while (whitelist.available()) {
+    String line = read_line(whitelist);
+    if (line.indexOf(id) >= 0) {
+      return true;
+    }
+    delay(100);
+  }
+  return false;
+  close_file();
+}
+
 bool is_authorized(String date, String id, String name) {
   bool result = false;
   if (DEBUG)
     Serial.println(F("[debug] is_authorized"));
 
-  open_file(FILE_READ);
-
-  while (whitelist.available()) {
-    String line = read_line(whitelist);
-    Serial.println(line);
-    if (line.indexOf(id) >= 0) {
-      result = true;
-      log(date, "user with ID " + id + " (" + name + ") is authorized");
-      break;
-    }
-    delay(100);
+  if (is_user_in_wl(id)) {
+    result = true;
+    log(date, "user with ID " + id + " (" + name + ") is authorized");
+  } else if (DEBUG) {
+    Serial.println(F("[debug] is_authorized: not authorized"));
   }
-
-  close_file();
 
   return result;
 }
@@ -270,6 +279,13 @@ void handle_cmd_useradd(String chat_id, String user_id,
   Serial.println(String("user_id: '") + user_id + "'");
   if (user_id.length() == 0) {
     bot.sendMessage(chat_id, "Could not add empty ID", "");
+    return;
+  }
+  if (is_user_in_wl(user_id)) {
+    bot.sendMessage(chat_id, 
+                    "Bzzt.  "
+                    "User with the given ID is already in the list",
+                    "");
     return;
   }
   open_file(FILE_WRITE);
