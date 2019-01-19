@@ -282,7 +282,7 @@ void handle_cmd_useradd(String chat_id, String user_id,
     return;
   }
   if (is_user_in_wl(user_id)) {
-    bot.sendMessage(chat_id, 
+    bot.sendMessage(chat_id,
                     "Bzzt.  "
                     "User with the given ID is already in the list",
                     "");
@@ -331,11 +331,20 @@ void handle_cmd_userdel(String chat_id, String caller_id, String user_id) {
 
   if (whitelist.available()) {
     // Skip the fist line to protect the "super-admin".
-    read_line(whitelist);
+    line = read_line(whitelist);
+    tmp.println(line);
+    if (DEBUG) {
+      Serial.print(F("[debug] handle_cmd_userdel: Skipped line: "));
+      Serial.println(line);
+    }
   }
 
   while (whitelist.available()) {
     line = read_line(whitelist);
+    if (DEBUG) {
+      Serial.print(F("[debug] handle_cmd_userdel: Read line: "));
+      Serial.println(line);
+    }
     if ((line.indexOf(user_id) < 0) && (line.length() > 2)) {
       tmp.println(line);
     }
