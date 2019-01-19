@@ -5,7 +5,6 @@ Hackerspace door Telegram bot.
 - [ESP8266](https://github.com/esp8266/Arduino) 2.4.2
 - [UniversalTelegramBot](https://github.com/witnessmenow/Universal-Arduino-Telegram-Bot) 1.1.0
 - [ArduinoJson](https://arduinojson.org/) 5.13.3
-- [EasyNTPClient](https://github.com/aharshac/EasyNTPClient)
 
 ## Configuration
 The configuration is stored in `config.h` file.
