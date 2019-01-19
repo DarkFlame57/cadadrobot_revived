@@ -321,6 +321,10 @@ boolean file_mv(String src, String dst) {
 void handle_cmd_userdel(String chat_id, String caller_id, String user_id) {
   const char* TMP_FILE = "wltmp.txt";
   Serial.println(chat_id + ", " + caller_id + ", " + user_id);
+  if (! is_user_in_wl(user_id)) {
+    bot.sendMessage(chat_id, "Bzzzt.  No such user in the whitelist.", "");
+    return;
+  }
   if (caller_id == user_id) {
     bot.sendMessage(chat_id, "Bzzzt.  You cannot delete yourself.", "");
     return;
