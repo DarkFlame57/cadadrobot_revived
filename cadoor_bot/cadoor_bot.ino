@@ -1,10 +1,23 @@
-
-/*******************************************************************
-   An example of bot that echos back any messages received
-*                                                                  *
-   written by Giacarlo Bacchio (Gianbacchio on Github)
-   adapted by Brian Lough
-*******************************************************************/
+/* cadoor_bot -- Hackerspace door bot.
+ *  
+ * Copyright (C) 2019 Artyom V. Poptsov <poptsov.artyom@gmail.com>
+ *
+ * This file is part of cadadrobot.
+ *
+ * cadadrobot is free software: you can redistribute it and/or
+ * modify it under the terms of the GNU General Public License as
+ * published by the Free Software Foundation, either version 3 of the
+ * License, or (at your option) any later version.
+ *
+ * cadadrobot is distributed in the hope that it will be useful, but
+ * WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+ * General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with cadadrobot.  If not, see <http://www.gnu.org/licenses/>.
+ */
+ 
 #include <SPI.h>
 #include <SD.h>
 
@@ -14,6 +27,8 @@
 #include <WiFiUdp.h>
 
 #include <time.h>
+
+#include "utils.h"
 
 // Bot configuration
 #include "config.h"
@@ -28,7 +43,8 @@ const char* WHITELIST_FILE = "WL.TXT";
 const char* LOG_FILE = "LOG.TXT";
 
 WiFiClientSecure client;
-UniversalTelegramBot bot(BOTtoken, client);
+Config config("CONF.TXT");
+UniversalTelegramBot* bot;
 File whitelist;
 
 const int LOCK_PIN    = 5;
@@ -62,24 +78,8 @@ void init_sdcard() {
   Serial.println(F("initialization done."));
 }
 
-String read_line(File f) {
-  String result = "";
-  while (f.available()) {
-    char ch = (char) f.read();
-    if ((ch == '\n') || (ch <= 0)) {
-      break;
-    }
-    result += ch;
-  }
-  return result;
-}
-
 void open_file(int mode) {
-  whitelist = SD.open(WHITELIST_FILE, mode);
-  delay(100);
-  if (! whitelist) {
-    Serial.println(F("Could not open file"));
-  }
+  whitelist = utils::open_file(WHITELIST_FILE, mode);
 }
 
 void close_file() {
@@ -113,7 +113,15 @@ void setup() {
 
   WiFi.mode(WIFI_STA);
   WiFi.disconnect();
+  Serial.println(F("WIFI disconnected"));
+  delay(100);
+  Serial.println(F("Initializing SD card..."));
+  init_sdcard();
+  Serial.println(F("done"));
+  delay(100);
 
+  String ssid = config.get("ssid");
+  String password = config.get("password");
   Serial.print(F("Connecting Wifi: "));
   Serial.println(ssid);
   IPAddress ip(192, 168, 42, 15);
@@ -121,8 +129,7 @@ void setup() {
   IPAddress subnet(255, 255, 255, 0);
   IPAddress dns1(8, 8, 8, 8);
   WiFi.config(ip, gateway, subnet, dns1);
-  WiFi.begin(ssid, password);
-
+  WiFi.begin(ssid.c_str(), password.c_str());
   while (WiFi.status() != WL_CONNECTED) {
     Serial.print(".");
     delay(500);
@@ -131,30 +138,29 @@ void setup() {
   Serial.println(F("\nWiFi connected"));
   Serial.print(F("IP address: "));
   Serial.println(WiFi.localIP());
-
+  if (DEBUG)
+    Serial.println(F("Creating a bot..."));
+  bot = new UniversalTelegramBot(config.get("token"), client);
   delay(1000);
-  init_sdcard();
-  delay(100);
-
-  delay(100);
+  Serial.println(F("Starting..."));
 }
 
 void send_error_unauthorized(String chat_id) {
-  bot.sendMessage(chat_id, "not authorized", "");
+  bot->sendMessage(chat_id, "not authorized", "");
 }
 
 void send_ok(String chat_id) {
-  bot.sendMessage(chat_id, "ok", "");
+  bot->sendMessage(chat_id, "ok", "");
 }
 
 /**
- * Check if an user is in the whitelist by their ID.
- * @returns true if ID is present in the whitelist, false otherwise.
- */
+   Check if an user is in the whitelist by their ID.
+   @returns true if ID is present in the whitelist, false otherwise.
+*/
 static bool is_user_in_wl(String id) {
   open_file(FILE_READ);
   while (whitelist.available()) {
-    String line = read_line(whitelist);
+    String line = utils::read_line(whitelist);
     if (line.indexOf(id) >= 0) {
       return true;
     }
@@ -184,9 +190,9 @@ void handle_cmd_logtail(String chat_id, int count) {
     Serial.println("[debug] handle_cmd_logtail");
 
   if (count <= 0) {
-    bot.sendMessage(chat_id,
-                    "Bzzzt.  The parameter should be > 0",
-                    "");
+    bot->sendMessage(chat_id,
+                     "Bzzzt.  The parameter should be > 0",
+                     "");
     return;
   }
 
@@ -201,13 +207,13 @@ void handle_cmd_logtail(String chat_id, int count) {
   String response = "";
   for (int cnt = 0; logf.available(); cnt++) {
     if (cnt > (line_count - 10)) {
-      response += read_line(logf) + "\n";
+      response += utils::read_line(logf) + "\n";
     } else {
-      read_line(logf);
+      utils::read_line(logf);
     }
   }
   logf.close();
-  bot.sendMessage(chat_id, response, "");
+  bot->sendMessage(chat_id, response, "");
 }
 
 void open_door() {
@@ -252,7 +258,7 @@ void handle_cmd_status(String chat_id) {
     response += "SD card:\tnot connected";
   }
   close_file();
-  bot.sendMessage(chat_id, response, "");
+  bot->sendMessage(chat_id, response, "");
 }
 
 void handle_cmd_userls(String chat_id) {
@@ -262,7 +268,7 @@ void handle_cmd_userls(String chat_id) {
   open_file(FILE_READ);
 
   for (int idx = 0; whitelist.available();) {
-    String line = read_line(whitelist);
+    String line = utils::read_line(whitelist);
     if (line.length() > 0) {
       response += String("") + idx + ". " + line + "\n";
       ++idx;
@@ -271,21 +277,21 @@ void handle_cmd_userls(String chat_id) {
 
   close_file();
 
-  bot.sendMessage(chat_id, response, "");
+  bot->sendMessage(chat_id, response, "");
 }
 
 void handle_cmd_useradd(String chat_id, String user_id,
                         String user_name) {
   Serial.println(String("user_id: '") + user_id + "'");
   if (user_id.length() == 0) {
-    bot.sendMessage(chat_id, "Could not add empty ID", "");
+    bot->sendMessage(chat_id, "Could not add empty ID", "");
     return;
   }
   if (is_user_in_wl(user_id)) {
-    bot.sendMessage(chat_id,
-                    "Bzzt.  "
-                    "User with the given ID is already in the list",
-                    "");
+    bot->sendMessage(chat_id,
+                     "Bzzt.  "
+                     "User with the given ID is already in the list",
+                     "");
     return;
   }
   open_file(FILE_WRITE);
@@ -308,7 +314,7 @@ boolean file_mv(String src, String dst) {
     return false;
   }
   while (src_f.available()) {
-    String line = read_line(src_f);
+    String line = utils::read_line(src_f);
     Serial.println(line);
     dst_f.println(line);
   }
@@ -322,11 +328,11 @@ void handle_cmd_userdel(String chat_id, String caller_id, String user_id) {
   const char* TMP_FILE = "wltmp.txt";
   Serial.println(chat_id + ", " + caller_id + ", " + user_id);
   if (! is_user_in_wl(user_id)) {
-    bot.sendMessage(chat_id, "Bzzzt.  No such user in the whitelist.", "");
+    bot->sendMessage(chat_id, "Bzzzt.  No such user in the whitelist.", "");
     return;
   }
   if (caller_id == user_id) {
-    bot.sendMessage(chat_id, "Bzzzt.  You cannot delete yourself.", "");
+    bot->sendMessage(chat_id, "Bzzzt.  You cannot delete yourself.", "");
     return;
   }
   open_file(FILE_READ);
@@ -335,7 +341,7 @@ void handle_cmd_userdel(String chat_id, String caller_id, String user_id) {
 
   if (whitelist.available()) {
     // Skip the fist line to protect the "super-admin".
-    line = read_line(whitelist);
+    line = utils::read_line(whitelist);
     tmp.println(line);
     if (DEBUG) {
       Serial.print(F("[debug] handle_cmd_userdel: Skipped line: "));
@@ -344,7 +350,7 @@ void handle_cmd_userdel(String chat_id, String caller_id, String user_id) {
   }
 
   while (whitelist.available()) {
-    line = read_line(whitelist);
+    line = utils::read_line(whitelist);
     if (DEBUG) {
       Serial.print(F("[debug] handle_cmd_userdel: Read line: "));
       Serial.println(line);
@@ -357,7 +363,7 @@ void handle_cmd_userdel(String chat_id, String caller_id, String user_id) {
   close_file();
 
   if (! file_mv(TMP_FILE, WHITELIST_FILE)) {
-    bot.sendMessage(chat_id, "Bzzzt.  Failed to update whitelist.", "");
+    bot->sendMessage(chat_id, "Bzzzt.  Failed to update whitelist.", "");
   } else {
     send_ok(chat_id);
   }
@@ -390,31 +396,33 @@ void handle_cmd_help(String chat_id) {
   result += "* /logtail [count] -- show the last COUNT lines of the log file.";
   result += " If COUNT is not specified, show the last 10 lines.\n";
   result += "* /help    -- print this message\n";
-  bot.sendMessage(chat_id, result, "");
+  bot->sendMessage(chat_id, result, "");
 }
 
 void handle_cmd_help_user(String chat_id) {
   String result = "Available commands:\n";
   result += "/id      -- print your ID\n";
   result += "/help    -- print this message\n";
-  bot.sendMessage(chat_id, result, "");
+  bot->sendMessage(chat_id, result, "");
 }
 
 void handle_cmd_id(String chat_id, String from_id) {
-  bot.sendMessage(chat_id, from_id, "");
+  bot->sendMessage(chat_id, from_id, "");
 }
 
 void handle_messages() {
-  int message_count = bot.getUpdates(bot.last_message_received + 1);
+  if (DEBUG)
+    Serial.println(F("[debug] requesting bot updates ..."));
+  int message_count = bot->getUpdates(bot->last_message_received + 1);
   while (message_count) {
     Serial.print(F("Got messages: "));
     Serial.println(message_count);
     for (int i = 0; i < message_count; i++) {
-      String chat_id   = bot.messages[i].chat_id;
-      String from_id   = bot.messages[i].from_id;
-      String from_name = bot.messages[i].from_name;
-      String msg_text  = bot.messages[i].text;
-      String date      = bot.messages[i].date;
+      String chat_id   = bot->messages[i].chat_id;
+      String from_id   = bot->messages[i].from_id;
+      String from_name = bot->messages[i].from_name;
+      String msg_text  = bot->messages[i].text;
+      String date      = bot->messages[i].date;
       if (msg_text == CMD_OPEN) {
         if (is_authorized(date, from_id, from_name)) {
           handle_open_door(chat_id);
@@ -468,7 +476,7 @@ void handle_messages() {
         }
       }
     }
-    message_count = bot.getUpdates(bot.last_message_received + 1);
+    message_count = bot->getUpdates(bot->last_message_received + 1);
   }
 }
 
@@ -478,8 +486,10 @@ void loop() {
   delay(100);
   if (digitalRead(BUTTON_PIN) == LOW) {
     open_door();
-  }
+  };
   if (loop_counter % 10 == 0) {
     handle_messages();
   }
 }
+
+//// cadoor_bot.ino ends here.
