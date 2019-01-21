@@ -7,7 +7,15 @@ Hackerspace door Telegram bot.
 - [ArduinoJson](https://arduinojson.org/) 5.13.3
 
 ## Configuration
-The configuration is stored in `config.h` file.
+
+The bot configuration is stored in `CONF.TXT` file on SD card.  The
+format of the configuration file is the following:
+
+```
+ssid:<the-ssid-of-your-wifi-ap>
+password:<your-wifi-password>
+token:<your-telegram-token>
+```
 
 ## Building and installation 
 Select "Generic ESP8266 module" board in the "Tools" menu and build
