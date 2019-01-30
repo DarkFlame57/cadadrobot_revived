@@ -1,23 +1,23 @@
 /* cadoor_bot -- Hackerspace door bot.
- *  
- * Copyright (C) 2019 Artyom V. Poptsov <poptsov.artyom@gmail.com>
- *
- * This file is part of cadadrobot.
- *
- * cadadrobot is free software: you can redistribute it and/or
- * modify it under the terms of the GNU General Public License as
- * published by the Free Software Foundation, either version 3 of the
- * License, or (at your option) any later version.
- *
- * cadadrobot is distributed in the hope that it will be useful, but
- * WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
- * General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with cadadrobot.  If not, see <http://www.gnu.org/licenses/>.
- */
- 
+
+   Copyright (C) 2019 Artyom V. Poptsov <poptsov.artyom@gmail.com>
+
+   This file is part of cadadrobot.
+
+   cadadrobot is free software: you can redistribute it and/or
+   modify it under the terms of the GNU General Public License as
+   published by the Free Software Foundation, either version 3 of the
+   License, or (at your option) any later version.
+
+   cadadrobot is distributed in the hope that it will be useful, but
+   WITHOUT ANY WARRANTY; without even the implied warranty of
+   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+   General Public License for more details.
+
+   You should have received a copy of the GNU General Public License
+   along with cadadrobot.  If not, see <http://www.gnu.org/licenses/>.
+*/
+
 #include <SPI.h>
 #include <SD.h>
 
@@ -48,7 +48,7 @@ UniversalTelegramBot* bot;
 File whitelist;
 
 const int LOCK_PIN    = 5;
-const int BUTTON_PIN  = 2;
+const int BUTTON_PIN  = 0;
 const int SPEAKER_PIN = 16;
 
 void play_tone(int pin, float f, long len) {
@@ -100,6 +100,32 @@ void log(String date, String msg) {
   logf.close();
 }
 
+bool is_button_pressed() {
+  if (digitalRead(BUTTON_PIN) == LOW) {
+    if (DEBUG) {
+      Serial.println(F("[debug] button pressed"));
+    }
+    return true;
+  }
+  return false;
+}
+
+void open_door() {
+  digitalWrite(LOCK_PIN, HIGH);
+  play_tone(SPEAKER_PIN, 291.63, 500000);
+  digitalWrite(LOCK_PIN, LOW);
+}
+
+void wait_wifi() {
+  while (WiFi.status() != WL_CONNECTED) {
+    Serial.print(".");
+    delay(500);
+    if (is_button_pressed()) {
+      open_door();
+    }
+  }
+}
+
 void setup() {
   Serial.begin(115200);
   while (!Serial) {
@@ -130,10 +156,7 @@ void setup() {
   IPAddress dns1(8, 8, 8, 8);
   WiFi.config(ip, gateway, subnet, dns1);
   WiFi.begin(ssid.c_str(), password.c_str());
-  while (WiFi.status() != WL_CONNECTED) {
-    Serial.print(".");
-    delay(500);
-  }
+  wait_wifi();
 
   Serial.println(F("\nWiFi connected"));
   Serial.print(F("IP address: "));
@@ -214,12 +237,6 @@ void handle_cmd_logtail(String chat_id, int count) {
   }
   logf.close();
   bot->sendMessage(chat_id, response, "");
-}
-
-void open_door() {
-  digitalWrite(LOCK_PIN, HIGH);
-  play_tone(SPEAKER_PIN, 291.63, 500000);
-  digitalWrite(LOCK_PIN, LOW);
 }
 
 void handle_open_door(String chat_id) {
@@ -483,10 +500,11 @@ void handle_messages() {
 int loop_counter = 0;
 
 void loop() {
+  wait_wifi();
   delay(100);
-  if (digitalRead(BUTTON_PIN) == LOW) {
+  if (is_button_pressed()) {
     open_door();
-  };
+  }
   if (loop_counter % 10 == 0) {
     handle_messages();
   }
