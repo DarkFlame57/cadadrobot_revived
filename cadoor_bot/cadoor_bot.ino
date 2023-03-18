@@ -25,6 +25,7 @@
 #include <WiFiClientSecure.h>
 #include <UniversalTelegramBot.h>
 #include <WiFiUdp.h>
+#include <DatabaseOnSD.h>
 
 #include <time.h>
 
@@ -46,6 +47,10 @@ WiFiClientSecure client;
 Config config("CONF.TXT");
 UniversalTelegramBot* bot;
 File whitelist;
+
+X509List cert(TELEGRAM_CERTIFICATE_ROOT);
+WiFiClientSecure secured_client;
+// UniversalTelegramBot bot(BOT_TOKEN, secured_client);
 
 const int LOCK_PIN    = 5;
 const int BUTTON_PIN  = 0;
@@ -138,7 +143,6 @@ void setup() {
   pinMode(SPEAKER_PIN, OUTPUT);
 
   WiFi.mode(WIFI_STA);
-  WiFi.disconnect();
   Serial.println(F("WIFI disconnected"));
   delay(100);
   Serial.println(F("Initializing SD card..."));
@@ -150,8 +154,8 @@ void setup() {
   String password = config.get("password");
   Serial.print(F("Connecting Wifi: "));
   Serial.println(ssid);
-  IPAddress ip(192, 168, 42, 15);
-  IPAddress gateway(192, 168, 42, 1);
+  IPAddress ip(172, 16, 1, 123);
+  IPAddress gateway(172, 16, 1, 1);
   IPAddress subnet(255, 255, 255, 0);
   IPAddress dns1(8, 8, 8, 8);
   WiFi.config(ip, gateway, subnet, dns1);
@@ -163,7 +167,7 @@ void setup() {
   Serial.println(WiFi.localIP());
   if (DEBUG)
     Serial.println(F("Creating a bot..."));
-  bot = new UniversalTelegramBot(config.get("token"), client);
+  bot = new UniversalTelegramBot(config.get("token"), secured_client);
   delay(1000);
   Serial.println(F("Starting..."));
 }
@@ -431,6 +435,8 @@ void handle_messages() {
   if (DEBUG)
     Serial.println(F("[debug] requesting bot updates ..."));
   int message_count = bot->getUpdates(bot->last_message_received + 1);
+  Serial.println(message_count);
+  Serial.println(bot->last_message_received);
   while (message_count) {
     Serial.print(F("Got messages: "));
     Serial.println(message_count);
